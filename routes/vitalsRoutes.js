@@ -36,8 +36,8 @@ router.get('/vitals-stream', (req, res) => {
     // Send initial data
     sendVitals();
 
-    // Send updates every 30 minutes
-    const interval = setInterval(sendVitals, 30 * 60 * 1000 );
+    // Send updates every 5
+    const interval = setInterval(sendVitals, 5 * 60 * 1000 );
 
     // Clean up when the client closes the connection
     req.on('close', () => {
