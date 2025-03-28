@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
+// Load environment variables from .env file
 dotenv.config();
 
 const staticUsers = [
@@ -130,12 +131,29 @@ const heartRateRanges = {
     }
 };
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || API_KEY,
-});
+// Initialize OpenAI client with proper API key validation
+let openai;
+try {
+    if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OPENAI_API_KEY is not defined in environment variables');
+    }
+    
+    openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+    console.log('OpenAI client initialized successfully');
+} catch (error) {
+    console.error('Failed to initialize OpenAI client:', error.message);
+    // We'll continue execution but the OpenAI functions will use fallback responses
+}
 
 
-// Get age group for a given age
+/**
+ * Determines the appropriate age group category for a given age
+ * Used for looking up heart rate ranges in the heartRateRanges object
+ * @param {number} age - The age of the person
+ * @returns {string} - The age group category (e.g., "18-25", "26-35", etc.)
+ */
 const getAgeGroup = (age) => {
     if (age <= 25) return "18-25";
     if (age <= 35) return "26-35";
@@ -145,12 +163,23 @@ const getAgeGroup = (age) => {
     return "65+";
 };
 
-// Generate a random heart rate within a range
+/**
+ * Generates a random integer within the specified range (inclusive)
+ * @param {number} min - The minimum value
+ * @param {number} max - The maximum value
+ * @returns {number} - A random integer between min and max (inclusive)
+ */
 const getRandomInRange = (min, max) => {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 };
 
-// Get random fitness level and corresponding heart rate
+/**
+ * Generates a random fitness level and corresponding heart rate based on sex and age
+ * Uses the heartRateRanges lookup table to determine appropriate ranges
+ * @param {string} sex - The person's sex ("Male" or "Female")
+ * @param {number} age - The person's age
+ * @returns {Object} - Object containing heartRate and fitnessLevel
+ */
 const getHeartRateAndFitness = (sex, age) => {
     const ageGroup = getAgeGroup(age);
     const ranges = heartRateRanges[sex][ageGroup];
@@ -165,9 +194,12 @@ const getHeartRateAndFitness = (sex, age) => {
 };
 
 
-// Rest of your code remains the same until the OpenAI function
-
-// OpenAI function to generate summary - FIXED FORMAT
+/**
+ * Generates personalized health recommendations using OpenAI's API
+ * If OpenAI API fails, falls back to a predefined template
+ * @param {Object} vitals - Object containing user's health data
+ * @returns {string} - Formatted health recommendations
+ */
 const generateSummaryWithOpenAI = async (vitals) => {
     const prompt = `
     Given the following health data of a person, generate three concise health recommendations in bullet points:
@@ -189,39 +221,58 @@ const generateSummaryWithOpenAI = async (vitals) => {
     - 🔍 **Monitor Regularly**: (General advice on monitoring vitals).  
     `;
 
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "You are a healthcare assistant providing concise health recommendations." },
-                { role: "user", content: prompt }
-            ],
-            max_tokens: 150,
-        });
+    // Only attempt to call OpenAI if the client was properly initialized
+    if (openai) {
+        try {
+            const response = await openai.chat.completions.create({
+                model: "gpt-4o", // This is a valid model name as of March 2025
+                messages: [
+                    { role: "system", content: "You are a healthcare assistant providing concise health recommendations." },
+                    { role: "user", content: prompt }
+                ],
+                max_tokens: 150,
+            });
 
-        return response.choices[0].message.content.trim();
-    } catch (error) {
-        console.error("Error generating recommendations:", error);
-        return `
-        🔹 **Health Recommendations for ${vitals.firstName} ${vitals.lastName}**  
-
-        - 🚶‍♀️ **Boost Activity**: Aim for 7,500+ steps daily for better endurance and metabolism.  
-        - ❤️ **Stay Consistent**: Maintain heart rate and blood pressure with regular movement.  
-        - 🔍 **Monitor Regularly**: No concerns detected, but routine check-ups are encouraged.  
-        `;
+            return response.choices[0].message.content.trim();
+        } catch (error) {
+            console.error("Error generating recommendations with OpenAI:", error.message);
+            // Log additional details for debugging if available
+            if (error.response) {
+                console.error("OpenAI API response status:", error.response.status);
+                console.error("OpenAI API response data:", error.response.data);
+            }
+        }
+    } else {
+        console.warn("OpenAI client not initialized, using fallback recommendations");
     }
+    
+    // Fallback response with consistent formatting
+    return `🔹 **Health Recommendations for ${vitals.firstName} ${vitals.lastName}**  
+
+- 🚶‍♀️ **Boost Activity**: Aim for 7,500+ steps daily for better endurance and metabolism.  
+- ❤️ **Stay Consistent**: Maintain heart rate and blood pressure with regular movement.  
+- 🔍 **Monitor Regularly**: No concerns detected, but routine check-ups are encouraged.`;
 };
 
+/**
+ * Main function that generates a complete set of random vitals data for a user
+ * Includes personal information, health metrics, and AI-generated recommendations
+ * @returns {Object} - Complete vitals data object
+ */
 const generateRandomVitals = async () => {
     const user = staticUsers[Math.floor(Math.random() * staticUsers.length)];
     const { heartRate, fitnessLevel } = getHeartRateAndFitness(user.sex, user.age);
 
+    // Generate random blood pressure values (systolic/diastolic)
+    const systolic = Math.floor(Math.random() * 50) + 80; // 80-130 range
+    const diastolic = Math.floor(Math.random() * 30) + 60; // 60-90 range
+    
     const vitals = {
         timestamp: new Date().toISOString(),
         ...user,
         heartRate,
         fitnessLevel,
-        bloodPressure: `${Math.floor(Math.random() * 50) + 80}/${Math.floor(Math.random() * 30) + 60}`,
+        bloodPressure: `${systolic}/${diastolic}`,
         stepsTaken: Math.floor(Math.random() * 10000),
     };
     vitals.notes = await generateSummaryWithOpenAI(vitals);
